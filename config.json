@@ -1,0 +1,11 @@
+{
+    "temp_dir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\WinGet",
+    "target_dir": "d:\\home\\WinGetFileAll\\soft",
+    "file_extensions": [
+        ".exe",
+        ".whl"
+    ],
+    "scan_interval": 5,
+    "retry_attempts": 3,
+    "retry_delay": 1
+}
