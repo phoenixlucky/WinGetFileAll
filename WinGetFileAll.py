@@ -1,8 +1,11 @@
 import os
 import shutil
 import time
+import sys
 from pathlib import Path
 from typing import Set
+import tkinter as tk
+from tkinter import messagebox
 
 class FileMonitor:
     def __init__(self):
@@ -41,16 +44,39 @@ class FileMonitor:
 
     def prompt_for_deletion(self) -> None:
         """提示是否删除 WinGet 下的全部文件"""
-        while True:
-            choice = input("是否删除 WinGet 下的全部文件？(Y/N): ").strip().upper()
-            if choice == 'Y':
+        if not hasattr(sys, 'stdin') or sys.stdin is None:
+            # 使用GUI对话框
+            root = tk.Tk()
+            root.withdraw()  # 隐藏主窗口
+            choice = messagebox.askyesno("确认", "是否删除 WinGet 下的全部文件？")
+            if choice:
                 self.delete_all_files()
-                break
-            elif choice == 'N':
-                print("保留 WinGet 文件")
-                break
             else:
-                print("请输入 Y 或 N")
+                print("保留 WinGet 文件")
+        else:
+            # 如果标准输入可用，使用命令行输入
+            while True:
+                try:
+                    choice = input("是否删除 WinGet 下的全部文件？(Y/N): ").strip().upper()
+                    if choice == 'Y':
+                        self.delete_all_files()
+                        break
+                    elif choice == 'N':
+                        print("保留 WinGet 文件")
+                        break
+                    else:
+                        print("请输入 Y 或 N")
+                except Exception as e:
+                    print(f"获取输入时发生错误: {e}")
+                    # 如果输入出错，默认使用GUI对话框
+                    root = tk.Tk()
+                    root.withdraw()
+                    choice = messagebox.askyesno("确认", "是否删除 WinGet 下的全部文件？")
+                    if choice:
+                        self.delete_all_files()
+                    else:
+                        print("保留 WinGet 文件")
+                    break
 
     def process_files(self) -> bool:
         """递归处理所有子目录中的 .exe 和 .whl 文件，返回是否复制了文件"""
