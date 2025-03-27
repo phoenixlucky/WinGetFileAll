@@ -1,0 +1,8 @@
+{
+    "temp_dir": "%TEMP%/WinGet",
+    "target_dir": "./soft",
+    "file_extensions": [".exe", ".whl"],
+    "scan_interval": 5,
+    "retry_attempts": 3,
+    "retry_delay": 1
+}
