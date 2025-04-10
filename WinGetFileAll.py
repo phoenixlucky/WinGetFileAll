@@ -3,10 +3,21 @@ import shutil
 import time
 import sys
 import json
+import logging
 from pathlib import Path
 from typing import Set, Dict, Any, List
 import tkinter as tk
 from tkinter import messagebox
+
+# 配置日志系统
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('wingetfileall.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
 
 # 设置控制台输出编码为UTF-8
 if sys.platform == 'win32':
@@ -29,9 +40,19 @@ class FileMonitor:
         self.prompt_interval = 20 * 60  # 20 分钟转换为秒
         self.known_files: Set[str] = set()  # 记录已知的文件
         self.file_sizes: dict = {}  # 记录文件大小
-        print(f"源目录: {self.temp_dir}, 是否存在: {self.temp_dir.exists()}")
-        print(f"目标目录: {self.target_dir}")
-        print(f"监控文件类型: {self.file_extensions}")
+        # 设置日志级别
+        log_level = getattr(logging, self.config.get('log_level', 'INFO').upper())
+        logging.getLogger().setLevel(log_level)
+        
+        logging.info(f"源目录: {self.temp_dir}, 是否存在: {self.temp_dir.exists()}")
+        logging.info(f"目标目录: {self.target_dir}")
+        logging.info(f"监控文件类型: {self.file_extensions}")
+        logging.info(f"日志级别: {logging.getLevelName(log_level)}")
+        
+        if not self.temp_dir.exists():
+            logging.warning(f"源目录不存在: {self.temp_dir}")
+        if not self.target_dir.exists():
+            logging.info(f"目标目录不存在，将创建: {self.target_dir}")
     
     def load_config(self) -> Dict[str, Any]:
         """加载配置文件，如果不存在则创建默认配置"""
@@ -42,22 +63,27 @@ class FileMonitor:
             "file_extensions": [".exe", ".whl"],
             "scan_interval": 5,
             "retry_attempts": 3,
-            "retry_delay": 1
+            "retry_delay": 1,
+            "log_level": "INFO"
         }
         
         if not config_path.exists():
-            with open(config_path, 'w', encoding='utf-8') as f:
-                json.dump(default_config, f, indent=4)
-            print(f"已创建默认配置文件: {config_path}")
-            return default_config
+            try:
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    json.dump(default_config, f, indent=4)
+                logging.info(f"已创建默认配置文件: {config_path}")
+                return default_config
+            except Exception as e:
+                logging.error(f"创建配置文件失败: {e}")
+                return default_config
         
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-            print(f"已加载配置文件: {config_path}")
+            logging.info(f"已加载配置文件: {config_path}")
             return config
         except Exception as e:
-            print(f"加载配置文件失败: {e}，使用默认配置")
+            logging.error(f"加载配置文件失败: {e}，使用默认配置")
             return default_config
     
     def get_temp_dir(self) -> Path:
@@ -81,48 +107,70 @@ class FileMonitor:
         try:
             for dir_path in path.rglob('*'):
                 if dir_path.is_dir() and not any(dir_path.iterdir()):
-                    dir_path.rmdir()
-                    print(f"删除空文件夹 {dir_path}")
+                    try:
+                        dir_path.rmdir()
+                        logging.info(f"删除空文件夹 {dir_path}")
+                    except PermissionError:
+                        logging.warning(f"权限不足，无法删除文件夹 {dir_path}")
+                    except Exception as e:
+                        logging.error(f"删除文件夹 {dir_path} 时发生错误: {e}")
         except Exception as e:
-            print(f"删除文件夹时发生错误: {e}")
+            logging.error(f"删除空文件夹操作失败: {e}", exc_info=True)
 
     def delete_all_files(self) -> None:
         """删除 WinGet 下的所有文件和文件夹"""
         try:
+            deleted_files = 0
+            skipped_files = 0
             for item in self.temp_dir.iterdir():
                 if item.is_file():
                     try:
                         item.unlink()
-                        print(f"删除文件 {item}")
+                        deleted_files += 1
+                        logging.info(f"删除文件 {item}")
                     except PermissionError as pe:
                         if "[WinError 32]" in str(pe):
-                            print(f"文件被占用，跳过删除: {item}")
+                            logging.warning(f"文件被占用，跳过删除: {item}")
+                            skipped_files += 1
                             continue
-                        raise pe
+                        logging.error(f"删除文件 {item} 时权限不足: {pe}")
+                        skipped_files += 1
+                    except Exception as e:
+                        logging.error(f"删除文件 {item} 时发生错误: {e}")
+                        skipped_files += 1
                 elif item.is_dir():
-                    shutil.rmtree(item)
-                    print(f"删除文件夹 {item}")
-            print("WinGet 目录已清空")
+                    try:
+                        shutil.rmtree(item)
+                        logging.info(f"删除文件夹 {item}")
+                        deleted_files += 1
+                    except Exception as e:
+                        logging.error(f"删除文件夹 {item} 时发生错误: {e}")
+                        skipped_files += 1
+            logging.info(f"WinGet 目录清理完成: 成功删除 {deleted_files} 个项目，跳过 {skipped_files} 个项目")
         except Exception as e:
-            print(f"删除文件时发生错误: {e}")
+            logging.error(f"清理 WinGet 目录时发生错误: {e}", exc_info=True)
 
     def prompt_for_deletion(self) -> None:
         """提示是否删除 WinGet 下的全部文件"""
-        # 统一使用GUI对话框
-        root = tk.Tk()
-        root.withdraw()  # 隐藏主窗口
-        choice = messagebox.askyesno("确认", "是否删除 WinGet 下的全部文件？")
-        if choice:
-            self.delete_all_files()
-        else:
-            print("保留 WinGet 文件")
+        try:
+            # 统一使用GUI对话框
+            root = tk.Tk()
+            root.withdraw()  # 隐藏主窗口
+            choice = messagebox.askyesno("确认", "是否删除 WinGet 下的全部文件？")
+            if choice:
+                logging.info("用户选择清理 WinGet 目录")
+                self.delete_all_files()
+            else:
+                logging.info("用户选择保留 WinGet 文件")
+        except Exception as e:
+            logging.error(f"显示删除提示对话框时发生错误: {e}")
 
     def process_files(self) -> bool:
         """递归处理所有子目录中的指定文件类型，返回是否复制了文件"""
         files_copied = False
         try:
-<<<<<<< HEAD
             if not self.temp_dir.exists():
+                logging.warning(f"源目录不存在: {self.temp_dir}")
                 return files_copied
 
             # 获取当前所有文件
@@ -142,119 +190,107 @@ class FileMonitor:
 
                         # 检查是否是新文件
                         if file_path.name not in self.known_files:
-                            print(f"检测到新文件: {file_path.name}")
+                            logging.info(f"检测到新文件: {file_path.name}")
                         # 检查文件大小是否变化（下载中）
                         elif file_path.name in self.file_sizes and current_size > self.file_sizes[file_path.name]:
-                            print(f"文件正在下载中: {file_path.name} ({current_size} bytes)")
+                            logging.debug(f"文件正在下载中: {file_path.name} ({current_size} bytes)")
 
                         if (current_size > 0 and 
                             not file_path.name.endswith('.tmp') and 
                             file_path.name not in self.copied_files and 
-                            file_path.suffix.lower() in ('.exe', '.whl')):
+                            file_path.suffix.lower() in self.file_extensions):
                             
                             target_file = self.target_dir / file_path.name
                             
                             if not target_file.exists():
-                                try:
-                                    shutil.copy(file_path, target_file)
-                                    self.copied_files.add(file_path.name)
-                                    print(f"文件 {file_path.name} 成功复制到 {self.target_dir}")
-                                    files_copied = True
-                                except PermissionError:
-                                    print(f"权限错误，无法复制 {file_path}")
-                                except Exception as e:
-                                    print(f"复制文件时发生错误: {e}")
+                                for attempt in range(self.retry_attempts):
+                                    try:
+                                        shutil.copy2(file_path, target_file)
+                                        self.copied_files.add(file_path.name)
+                                        logging.info(f"文件 {file_path.name} 成功复制到 {target_file}")
+                                        files_copied = True
+                                        break
+                                    except PermissionError:
+                                        logging.warning(f"权限错误，无法复制 {file_path}，尝试 {attempt+1}/{self.retry_attempts}")
+                                        if attempt < self.retry_attempts - 1:
+                                            time.sleep(self.retry_delay)
+                                    except FileNotFoundError:
+                                        logging.warning(f"源文件不存在或已被移动: {file_path}")
+                                        break
+                                    except Exception as e:
+                                        logging.error(f"复制文件时发生错误: {file_path}, 错误: {e}, 尝试 {attempt+1}/{self.retry_attempts}")
+                                        if attempt < self.retry_attempts - 1:
+                                            time.sleep(self.retry_delay)
                             else:
-                                print(f"文件 {file_path.name} 已存在，跳过")
+                                logging.debug(f"文件已存在，跳过: {target_file}")
                     except Exception as e:
-                        print(f"处理文件 {file_path.name} 时发生错误: {e}")
+                        logging.error(f"处理文件 {file_path.name} 时发生错误: {e}")
             
             # 检查是否有新文件夹生成
             current_dirs = {d for d in self.temp_dir.iterdir() if d.is_dir()}
             new_dirs = current_dirs - existing_dirs
             for new_dir in new_dirs:
-                print(f"检测到新文件夹: {new_dir}")
+                logging.info(f"检测到新文件夹: {new_dir}")
             
             # 更新已知文件列表和大小记录
             self.known_files = current_files
             self.file_sizes = current_sizes
                     
-=======
-            # 确保目标目录存在
-            self.target_dir.mkdir(parents=True, exist_ok=True)
-            
-            # 递归搜索所有子目录
-            for file_path in self.temp_dir.rglob('*'):
-                if (file_path.is_file() and 
-                    file_path.stat().st_size > 0 and 
-                    not file_path.name.endswith('.tmp') and 
-                    file_path.name not in self.copied_files and 
-                    file_path.suffix.lower() in self.file_extensions):
-                    
-                    # 保持相对路径结构
-                    rel_path = file_path.relative_to(self.temp_dir)
-                    target_file = self.target_dir / rel_path
-                    target_file.parent.mkdir(parents=True, exist_ok=True)
-                    
-                    if not target_file.exists():
-                        for attempt in range(self.retry_attempts):
-                            try:
-                                shutil.copy(file_path, target_file)
-                                self.copied_files.add(file_path.name)
-                                print(f"文件 {file_path.name} 成功复制到 {self.target_dir}")
-                                files_copied = True
-                                break
-                            except PermissionError:
-                                print(f"权限错误，无法复制 {file_path}，尝试 {attempt+1}/{self.retry_attempts}")
-                                if attempt < self.retry_attempts - 1:
-                                    time.sleep(self.retry_delay)
-                            except Exception as e:
-                                print(f"复制文件时发生错误: {e}，尝试 {attempt+1}/{self.retry_attempts}")
-                                if attempt < self.retry_attempts - 1:
-                                    time.sleep(self.retry_delay)
-                    else:
-                        print(f"文件 {file_path.name} 已存在，跳过")
->>>>>>> e2df8d90d183188c7defd85641487bc4f3abcb02
         except Exception as e:
-            print(f"处理文件时发生错误: {e}")
+            logging.error(f"处理文件时发生错误: {e}", exc_info=True)
         return files_copied
 
     def run(self) -> None:
         """主循环"""
-        print(f"开始监控 {self.temp_dir}，目标路径: {self.target_dir}")
-        print(f"扫描间隔: {self.scan_interval}秒，重试次数: {self.retry_attempts}，重试延迟: {self.retry_delay}秒")
+        logging.info(f"开始监控 {self.temp_dir}，目标路径: {self.target_dir}")
+        logging.info(f"扫描间隔: {self.scan_interval}秒，重试次数: {self.retry_attempts}，重试延迟: {self.retry_delay}秒")
         
-        # 程序开始时先处理现有文件
-        self.process_files()
-        # 然后提示是否删除
-        self.prompt_for_deletion()
-        self.last_prompt_time = time.time()
-        
-        while True:
-            try:
-                # 处理文件
-                self.process_files()
-                
-                # 清理空目录
-                self.remove_empty_dirs(self.temp_dir)
-                
-                # 检查是否需要提示删除
-                current_time = time.time()
-                if current_time - self.last_prompt_time >= self.prompt_interval:
-                    self.prompt_for_deletion()
-                    self.last_prompt_time = current_time
-                
-            except Exception as e:
-                print(f"主循环发生错误: {e}")
+        try:
+            # 程序开始时先处理现有文件
+            if self.process_files():
+                logging.info("初始文件处理完成")
             
-            time.sleep(self.scan_interval)
+            # 然后提示是否删除
+            self.prompt_for_deletion()
+            self.last_prompt_time = time.time()
+            
+            logging.info("进入主循环监控模式")
+            while True:
+                try:
+                    # 处理文件
+                    if self.process_files():
+                        logging.info("发现并处理了新文件")
+                    
+                    # 清理空目录
+                    self.remove_empty_dirs(self.temp_dir)
+                    
+                    # 检查是否需要提示删除
+                    current_time = time.time()
+                    if current_time - self.last_prompt_time >= self.prompt_interval:
+                        logging.info("触发定期清理提示")
+                        self.prompt_for_deletion()
+                        self.last_prompt_time = current_time
+                    
+                except Exception as e:
+                    logging.error(f"主循环迭代发生错误: {e}", exc_info=True)
+                finally:
+                    time.sleep(self.scan_interval)
+        except Exception as e:
+            logging.error(f"主循环发生致命错误: {e}", exc_info=True)
+            raise
 
 if __name__ == "__main__":
-    monitor = FileMonitor()
     try:
-        monitor.run()
-    except KeyboardInterrupt:
-        print("\n程序已终止")
+        monitor = FileMonitor()
+        try:
+            monitor.run()
+        except KeyboardInterrupt:
+            logging.info("\n程序已终止")
+        except Exception as e:
+            logging.error(f"程序运行出错: {e}", exc_info=True)
     except Exception as e:
-        print(f"程序运行出错: {e}")
+        logging.error(f"初始化失败: {e}", exc_info=True)
+    finally:
+        logging.info("程序即将退出")
+        print("\n程序已终止，查看wingetfileall.log获取详细信息")
         input("按任意键退出...")
