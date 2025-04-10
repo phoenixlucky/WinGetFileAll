@@ -15,6 +15,8 @@ class FileMonitor:
         self.target_dir.mkdir(parents=True, exist_ok=True)
         self.last_prompt_time = 0  # 记录上一次提示的时间
         self.prompt_interval = 20 * 60  # 20 分钟转换为秒
+        self.known_files: Set[str] = set()  # 记录已知的文件
+        self.file_sizes: dict = {}  # 记录文件大小
         print(f"源目录: {self.temp_dir}, 是否存在: {self.temp_dir.exists()}")
         print(f"目标目录: {self.target_dir}")
 
@@ -82,27 +84,63 @@ class FileMonitor:
         """递归处理所有子目录中的 .exe 和 .whl 文件，返回是否复制了文件"""
         files_copied = False
         try:
+            if not self.temp_dir.exists():
+                return files_copied
+
+            # 获取当前所有文件
+            current_files = set()
+            current_sizes = {}
+            
+            # 记录当前已存在的文件夹
+            existing_dirs = {d for d in self.temp_dir.iterdir() if d.is_dir()}
+            
+            # 扫描所有文件
             for file_path in self.temp_dir.rglob('*'):
-                if (file_path.is_file() and 
-                    file_path.stat().st_size > 0 and 
-                    not file_path.name.endswith('.tmp') and 
-                    file_path.name not in self.copied_files and 
-                    file_path.suffix.lower() in ('.exe', '.whl')):
+                if file_path.is_file():
+                    current_files.add(file_path.name)
+                    try:
+                        current_size = file_path.stat().st_size
+                        current_sizes[file_path.name] = current_size
+
+                        # 检查是否是新文件
+                        if file_path.name not in self.known_files:
+                            print(f"检测到新文件: {file_path.name}")
+                        # 检查文件大小是否变化（下载中）
+                        elif file_path.name in self.file_sizes and current_size > self.file_sizes[file_path.name]:
+                            print(f"文件正在下载中: {file_path.name} ({current_size} bytes)")
+
+                        if (current_size > 0 and 
+                            not file_path.name.endswith('.tmp') and 
+                            file_path.name not in self.copied_files and 
+                            file_path.suffix.lower() in ('.exe', '.whl')):
+                            
+                            target_file = self.target_dir / file_path.name
+                            
+                            if not target_file.exists():
+                                try:
+                                    shutil.copy(file_path, target_file)
+                                    self.copied_files.add(file_path.name)
+                                    print(f"文件 {file_path.name} 成功复制到 {self.target_dir}")
+                                    files_copied = True
+                                except PermissionError:
+                                    print(f"权限错误，无法复制 {file_path}")
+                                except Exception as e:
+                                    print(f"复制文件时发生错误: {e}")
+                            else:
+                                print(f"文件 {file_path.name} 已存在，跳过")
+                    except Exception as e:
+                        print(f"处理文件 {file_path.name} 时发生错误: {e}")
+            
+            # 检查是否有新文件夹生成
+            current_dirs = {d for d in self.temp_dir.iterdir() if d.is_dir()}
+            new_dirs = current_dirs - existing_dirs
+            for new_dir in new_dirs:
+                print(f"检测到新文件夹: {new_dir}")
+            
+            # 更新已知文件列表和大小记录
+            self.known_files = current_files
+            self.file_sizes = current_sizes
                     
-                    target_file = self.target_dir / file_path.name
-                    
-                    if not target_file.exists():
-                        try:
-                            shutil.copy(file_path, target_file)
-                            self.copied_files.add(file_path.name)
-                            print(f"文件 {file_path.name} 成功复制到 {self.target_dir}")
-                            files_copied = True
-                        except PermissionError:
-                            print(f"权限错误，无法复制 {file_path}")
-                        except Exception as e:
-                            print(f"复制文件时发生错误: {e}")
-                    else:
-                        print(f"文件 {file_path.name} 已存在，跳过")
         except Exception as e:
             print(f"处理文件时发生错误: {e}")
         return files_copied
