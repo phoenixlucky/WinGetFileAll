@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Set, Dict, Any, List
 import tkinter as tk
 from tkinter import messagebox
+import atexit
 
 # 配置日志系统
 logging.basicConfig(
@@ -24,6 +25,25 @@ if sys.platform == 'win32':
     import codecs
     sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
     sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+
+def handle_exit():
+    root = tk.Tk()
+    root.withdraw()
+    if messagebox.askyesno("确认退出", "确定要退出程序吗？"):
+        logging.info("用户确认退出程序")
+        sys.exit(0)
+    else:
+        logging.info("用户取消退出程序")
+        return
+
+def handle_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        handle_exit()
+        return
+    logging.error("未捕获的异常:", exc_info=(exc_type, exc_value, exc_traceback))
+    root = tk.Tk()
+    root.withdraw()
+    messagebox.showerror("错误", f"程序遇到错误: {str(exc_value)}\n请查看日志文件了解详情。")
 
 class FileMonitor:
     def __init__(self):
@@ -58,7 +78,7 @@ class FileMonitor:
         """加载配置文件，如果不存在则创建默认配置"""
         config_path = Path('config.json')
         default_config = {
-            "temp_dir": "%TEMP%/WinGet",
+            "temp_dir": "%LOCALAPPDATA%/Packages",
             "target_dir": "./soft",
             "file_extensions": [".exe", ".whl"],
             "scan_interval": 5,
@@ -88,10 +108,10 @@ class FileMonitor:
     
     def get_temp_dir(self) -> Path:
         """获取监控目录路径"""
-        temp_dir_str = self.config.get('temp_dir', "%TEMP%/WinGet")
+        temp_dir_str = self.config.get('temp_dir', "%LOCALAPPDATA%/Packages")
         # 替换环境变量
-        if "%TEMP%" in temp_dir_str:
-            temp_dir_str = temp_dir_str.replace("%TEMP%", os.environ['TEMP'])
+        if "%LOCALAPPDATA%" in temp_dir_str:
+            temp_dir_str = temp_dir_str.replace("%LOCALAPPDATA%", os.environ['LOCALAPPDATA'])
         return Path(temp_dir_str)
     
     def get_target_dir(self) -> Path:
@@ -280,17 +300,18 @@ class FileMonitor:
             raise
 
 if __name__ == "__main__":
+    # 设置全局异常处理
+    sys.excepthook = handle_exception
+    # 注册退出处理
+    atexit.register(handle_exit)
+    
     try:
         monitor = FileMonitor()
-        try:
-            monitor.run()
-        except KeyboardInterrupt:
-            logging.info("\n程序已终止")
-        except Exception as e:
-            logging.error(f"程序运行出错: {e}", exc_info=True)
+        logging.info("程序启动成功，开始监控文件...")
+        monitor.run()
     except Exception as e:
-        logging.error(f"初始化失败: {e}", exc_info=True)
-    finally:
-        logging.info("程序即将退出")
-        print("\n程序已终止，查看wingetfileall.log获取详细信息")
-        input("按任意键退出...")
+        logging.error(f"程序运行时发生错误: {e}", exc_info=True)
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("错误", f"程序运行时发生错误: {str(e)}\n请查看日志文件了解详情。")
+        sys.exit(1)

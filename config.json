@@ -1,5 +1,5 @@
 {
-    "temp_dir": "%TEMP%/WinGet",
+    "temp_dir": "%LOCALAPPDATA%/Packages",
     "target_dir": "./soft",
     "file_extensions": [".exe", ".whl"],
     "scan_interval": 5,
