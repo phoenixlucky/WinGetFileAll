@@ -9,6 +9,10 @@ from typing import Set, Dict, Any, List
 import tkinter as tk
 from tkinter import messagebox
 import atexit
+import win32file
+import win32con
+import pywintypes
+import msvcrt
 
 # 配置日志系统
 logging.basicConfig(
@@ -45,6 +49,52 @@ def handle_exception(exc_type, exc_value, exc_traceback):
     root.withdraw()
     messagebox.showerror("错误", f"程序遇到错误: {str(exc_value)}\n请查看日志文件了解详情。")
 
+def is_file_locked(file_path: Path) -> bool:
+    """检查文件是否被锁定"""
+    try:
+        # 尝试以独占模式打开文件
+        with open(file_path, 'rb') as f:
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        return False
+    except (IOError, PermissionError):
+        return True
+
+def wait_for_file_completion(file_path: Path, timeout: int = 60) -> bool:
+    """等待文件下载完成
+    
+    Args:
+        file_path: 文件路径
+        timeout: 超时时间（秒）
+        
+    Returns:
+        bool: 文件是否可用
+    """
+    start_time = time.time()
+    last_size = -1
+    unchanged_count = 0
+    
+    while time.time() - start_time < timeout:
+        try:
+            current_size = file_path.stat().st_size
+            if current_size == last_size:
+                unchanged_count += 1
+                if unchanged_count >= 3:  # 连续3次大小不变，认为下载完成
+                    return True
+            else:
+                unchanged_count = 0
+                last_size = current_size
+            time.sleep(1)
+        except FileNotFoundError:
+            logging.warning(f"文件不存在或已被移动: {file_path}")
+            return False
+        except Exception as e:
+            logging.error(f"检查文件大小时发生错误: {e}")
+            return False
+    
+    logging.warning(f"等待文件 {file_path} 完成下载超时")
+    return False
+
 class FileMonitor:
     def __init__(self):
         self.config = self.load_config()
@@ -78,9 +128,9 @@ class FileMonitor:
         """加载配置文件，如果不存在则创建默认配置"""
         config_path = Path('config.json')
         default_config = {
-            "temp_dir": "%LOCALAPPDATA%/Packages",
-            "target_dir": "./soft",
-            "file_extensions": [".exe", ".whl"],
+            "temp_dir": "%LOCALAPPDATA%/Temp/UniGetUI/ElevatedWinGetTemp/WinGet",
+            "target_dir": "%USERPROFILE%/Desktop/soft",
+            "file_extensions": [".exe", ".whl", ".msi"],
             "scan_interval": 5,
             "retry_attempts": 3,
             "retry_delay": 1,
@@ -116,11 +166,18 @@ class FileMonitor:
     
     def get_target_dir(self) -> Path:
         """获取目标目录路径"""
-        target_dir_str = self.config.get('target_dir', "./soft")
-        # 如果是相对路径，则相对于当前目录
-        if target_dir_str.startswith("./") or target_dir_str.startswith(".\\"): 
-            return Path(os.getcwd()) / target_dir_str[2:]
-        return Path(target_dir_str)
+        target_dir_str = self.config.get('target_dir', "%USERPROFILE%/Desktop/soft")
+        # 替换环境变量
+        if "%USERPROFILE%" in target_dir_str:
+            target_dir_str = target_dir_str.replace("%USERPROFILE%", os.environ['USERPROFILE'])
+        if "%LOCALAPPDATA%" in target_dir_str:
+            target_dir_str = target_dir_str.replace("%LOCALAPPDATA%", os.environ['LOCALAPPDATA'])
+        
+        target_path = Path(target_dir_str)
+        # 确保目标目录存在
+        target_path.mkdir(parents=True, exist_ok=True)
+        logging.info(f"目标目录已设置为: {target_path}")
+        return target_path
 
     def remove_empty_dirs(self, path: Path) -> None:
         """递归删除空文件夹"""
@@ -193,7 +250,6 @@ class FileMonitor:
                 logging.warning(f"源目录不存在: {self.temp_dir}")
                 return files_copied
 
-            # 获取当前所有文件
             current_files = set()
             current_sizes = {}
             
@@ -202,55 +258,62 @@ class FileMonitor:
             
             # 扫描所有文件
             for file_path in self.temp_dir.rglob('*'):
-                if file_path.is_file():
-                    current_files.add(file_path.name)
-                    try:
-                        current_size = file_path.stat().st_size
-                        current_sizes[file_path.name] = current_size
+                if not file_path.is_file():
+                    continue
+                
+                current_files.add(file_path.name)
+                try:
+                    current_size = file_path.stat().st_size
+                    current_sizes[file_path.name] = current_size
 
-                        # 检查是否是新文件
-                        if file_path.name not in self.known_files:
-                            logging.info(f"检测到新文件: {file_path.name}")
-                        # 检查文件大小是否变化（下载中）
-                        elif file_path.name in self.file_sizes and current_size > self.file_sizes[file_path.name]:
-                            logging.debug(f"文件正在下载中: {file_path.name} ({current_size} bytes)")
-
-                        if (current_size > 0 and 
-                            not file_path.name.endswith('.tmp') and 
-                            file_path.name not in self.copied_files and 
-                            file_path.suffix.lower() in self.file_extensions):
+                    # 检查文件是否符合要求
+                    if (current_size > 0 and 
+                        not file_path.name.endswith('.tmp') and 
+                        file_path.name not in self.copied_files and 
+                        file_path.suffix.lower() in self.file_extensions):
+                        
+                        target_file = self.target_dir / file_path.name
+                        
+                        if not target_file.exists():
+                            # 检查文件是否被锁定或正在下载
+                            if is_file_locked(file_path):
+                                logging.info(f"文件 {file_path.name} 正在被使用，等待解锁...")
+                                if not wait_for_file_completion(file_path):
+                                    continue
                             
-                            target_file = self.target_dir / file_path.name
-                            
-                            if not target_file.exists():
-                                for attempt in range(self.retry_attempts):
-                                    try:
-                                        shutil.copy2(file_path, target_file)
+                            for attempt in range(self.retry_attempts):
+                                try:
+                                    # 使用低级文件操作来复制
+                                    with open(file_path, 'rb') as source:
+                                        with open(target_file, 'wb') as target:
+                                            shutil.copyfileobj(source, target, length=1024*1024)  # 1MB chunks
+                                    
+                                    # 验证复制是否成功
+                                    if target_file.exists() and target_file.stat().st_size == current_size:
                                         self.copied_files.add(file_path.name)
                                         logging.info(f"文件 {file_path.name} 成功复制到 {target_file}")
                                         files_copied = True
                                         break
-                                    except PermissionError:
-                                        logging.warning(f"权限错误，无法复制 {file_path}，尝试 {attempt+1}/{self.retry_attempts}")
-                                        if attempt < self.retry_attempts - 1:
-                                            time.sleep(self.retry_delay)
-                                    except FileNotFoundError:
-                                        logging.warning(f"源文件不存在或已被移动: {file_path}")
-                                        break
-                                    except Exception as e:
-                                        logging.error(f"复制文件时发生错误: {file_path}, 错误: {e}, 尝试 {attempt+1}/{self.retry_attempts}")
-                                        if attempt < self.retry_attempts - 1:
-                                            time.sleep(self.retry_delay)
-                            else:
-                                logging.debug(f"文件已存在，跳过: {target_file}")
-                    except Exception as e:
-                        logging.error(f"处理文件 {file_path.name} 时发生错误: {e}")
-            
-            # 检查是否有新文件夹生成
-            current_dirs = {d for d in self.temp_dir.iterdir() if d.is_dir()}
-            new_dirs = current_dirs - existing_dirs
-            for new_dir in new_dirs:
-                logging.info(f"检测到新文件夹: {new_dir}")
+                                    else:
+                                        raise Exception("文件复制验证失败")
+                                    
+                                except PermissionError as pe:
+                                    logging.warning(f"权限错误，无法复制 {file_path}，尝试 {attempt+1}/{self.retry_attempts}")
+                                    if "[WinError 32]" in str(pe):  # 文件正在使用
+                                        time.sleep(self.retry_delay * 2)  # 等待更长时间
+                                    if attempt < self.retry_attempts - 1:
+                                        time.sleep(self.retry_delay)
+                                except FileNotFoundError:
+                                    logging.warning(f"源文件不存在或已被移动: {file_path}")
+                                    break
+                                except Exception as e:
+                                    logging.error(f"复制文件时发生错误: {file_path}, 错误: {e}, 尝试 {attempt+1}/{self.retry_attempts}")
+                                    if attempt < self.retry_attempts - 1:
+                                        time.sleep(self.retry_delay)
+                        else:
+                            logging.debug(f"文件已存在，跳过: {target_file}")
+                except Exception as e:
+                    logging.error(f"处理文件 {file_path.name} 时发生错误: {e}")
             
             # 更新已知文件列表和大小记录
             self.known_files = current_files

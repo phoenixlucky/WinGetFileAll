@@ -32,13 +32,16 @@ WinGetFileAll 是一个专门为 Windows 系统设计的文件监控和同步工
 
 ```json
 {
-    "temp_dir": "%TEMP%/WinGet",        // 监控目录，支持环境变量
-    "target_dir": "./soft",           // 目标保存目录
-    "file_extensions": [".exe", ".whl"], // 要复制的文件类型
-    "scan_interval": 5,                // 扫描间隔（秒）
-    "retry_attempts": 3,               // 复制失败重试次数
-    "retry_delay": 1,                  // 重试延迟（秒）
-    "log_level": "INFO"                // 日志级别
+    "temp_dir": "%LOCALAPPDATA%/Temp/UniGetUI/ElevatedWinGetTemp/WinGet",  // 监控目录，支持环境变量
+    "target_dir": "%USERPROFILE%/Desktop/soft",                        // 目标保存目录
+    "file_extensions": [".exe", ".whl", ".msi"],                      // 要复制的文件类型
+    "scan_interval": 5,                                               // 扫描间隔（秒）
+    "retry_attempts": 3,                                              // 复制失败重试次数
+    "retry_delay": 1,                                                 // 重试延迟（秒）
+    "file_wait_timeout": 60,                                          // 等待文件下载完成的超时时间（秒）
+    "min_file_size": 1024,                                            // 最小文件大小（字节）
+    "log_level": "INFO",                                              // 日志级别
+    "delete_prompt_interval": 1200                                    // 删除提示间隔（秒）
 }
 ```
 

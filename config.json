@@ -1,8 +1,12 @@
 {
-    "temp_dir": "%LOCALAPPDATA%/Packages",
-    "target_dir": "./soft",
-    "file_extensions": [".exe", ".whl"],
-    "scan_interval": 5,
-    "retry_attempts": 3,
-    "retry_delay": 1
+    "temp_dir": "%LOCALAPPDATA%/Temp/UniGetUI/ElevatedWinGetTemp/WinGet",
+    "target_dir": "%USERPROFILE%/Desktop/soft",
+    "file_extensions": [".exe", ".whl", ".msi"],
+    "scan_interval": 2,
+    "retry_attempts": 5,
+    "retry_delay": 2,
+    "file_wait_timeout": 60,
+    "min_file_size": 1024,
+    "log_level": "INFO",
+    "delete_prompt_interval": 1200
 }
