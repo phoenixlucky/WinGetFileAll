@@ -1,3 +1,3 @@
-build/WinGetFileAll/
-dist/
-soft/
+build
+soft
+dist
