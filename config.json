@@ -7,6 +7,5 @@
     "retry_delay": 2,
     "file_wait_timeout": 60,
     "min_file_size": 1024,
-    "log_level": "INFO",
-    "delete_prompt_interval": 1200
+    "log_level": "INFO"
 }

@@ -106,8 +106,6 @@ class FileMonitor:
         self.retry_delay = self.config.get('retry_delay', 1)
         self.copied_files: Set[str] = set()
         self.target_dir.mkdir(parents=True, exist_ok=True)
-        self.last_prompt_time = 0  # 记录上一次提示的时间
-        self.prompt_interval = 20 * 60  # 20 分钟转换为秒
         self.known_files: Set[str] = set()  # 记录已知的文件
         self.file_sizes: dict = {}  # 记录文件大小
         # 设置日志级别
@@ -182,7 +180,9 @@ class FileMonitor:
     def remove_empty_dirs(self, path: Path) -> None:
         """递归删除空文件夹"""
         try:
-            for dir_path in path.rglob('*'):
+            # 确保使用正确的路径 - 使用temp_dir而不是任意路径
+            target_path = self.temp_dir
+            for dir_path in target_path.rglob('*'):
                 if dir_path.is_dir() and not any(dir_path.iterdir()):
                     try:
                         dir_path.rmdir()
@@ -227,20 +227,7 @@ class FileMonitor:
         except Exception as e:
             logging.error(f"清理 WinGet 目录时发生错误: {e}", exc_info=True)
 
-    def prompt_for_deletion(self) -> None:
-        """提示是否删除 WinGet 下的全部文件"""
-        try:
-            # 统一使用GUI对话框
-            root = tk.Tk()
-            root.withdraw()  # 隐藏主窗口
-            choice = messagebox.askyesno("确认", "是否删除 WinGet 下的全部文件？")
-            if choice:
-                logging.info("用户选择清理 WinGet 目录")
-                self.delete_all_files()
-            else:
-                logging.info("用户选择保留 WinGet 文件")
-        except Exception as e:
-            logging.error(f"显示删除提示对话框时发生错误: {e}")
+    # 已移除prompt_for_deletion方法
 
     def process_files(self) -> bool:
         """递归处理所有子目录中的指定文件类型，返回是否复制了文件"""
@@ -333,10 +320,7 @@ class FileMonitor:
             if self.process_files():
                 logging.info("初始文件处理完成")
             
-            # 然后提示是否删除
-            self.prompt_for_deletion()
-            self.last_prompt_time = time.time()
-            
+            # 移除提示是否删除的功能
             logging.info("进入主循环监控模式")
             while True:
                 try:
@@ -347,12 +331,7 @@ class FileMonitor:
                     # 清理空目录
                     self.remove_empty_dirs(self.temp_dir)
                     
-                    # 检查是否需要提示删除
-                    current_time = time.time()
-                    if current_time - self.last_prompt_time >= self.prompt_interval:
-                        logging.info("触发定期清理提示")
-                        self.prompt_for_deletion()
-                        self.last_prompt_time = current_time
+                    # 移除定期提示删除功能
                     
                 except Exception as e:
                     logging.error(f"主循环迭代发生错误: {e}", exc_info=True)
