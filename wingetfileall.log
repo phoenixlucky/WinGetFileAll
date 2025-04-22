@@ -23138,3 +23138,23 @@
 2025-04-18 09:56:36,788 - INFO - 初始文件处理完成
 2025-04-18 09:56:39,001 - INFO - 用户选择保留 WinGet 文件
 2025-04-18 09:56:39,001 - INFO - 进入主循环监控模式
+2025-04-22 20:14:48,648 - INFO - 已加载配置文件: config.json
+2025-04-22 20:14:48,649 - INFO - 目标目录已设置为: C:\Users\WJ\Desktop\soft
+2025-04-22 20:14:48,650 - INFO - 源目录: C:\Users\WJ\AppData\Local\Temp\UniGetUI\ElevatedWinGetTemp\WinGet, 是否存在: True
+2025-04-22 20:14:48,650 - INFO - 目标目录: C:\Users\WJ\Desktop\soft
+2025-04-22 20:14:48,650 - INFO - 监控文件类型: ['.exe', '.whl', '.msi']
+2025-04-22 20:14:48,651 - INFO - 日志级别: INFO
+2025-04-22 20:14:48,651 - INFO - 程序启动成功，开始监控文件...
+2025-04-22 20:14:48,651 - INFO - 开始监控 C:\Users\WJ\AppData\Local\Temp\UniGetUI\ElevatedWinGetTemp\WinGet，目标路径: C:\Users\WJ\Desktop\soft
+2025-04-22 20:14:48,651 - INFO - 扫描间隔: 2秒，重试次数: 5，重试延迟: 2秒
+2025-04-22 20:14:48,659 - INFO - 进入主循环监控模式
+2025-04-22 20:35:06,501 - INFO - 已加载配置文件: config.json
+2025-04-22 20:35:06,521 - INFO - 目标目录已设置为: C:\Users\WJ\Desktop\soft
+2025-04-22 20:35:06,521 - INFO - 源目录: C:\Users\WJ\AppData\Local\Temp\UniGetUI\ElevatedWinGetTemp\WinGet, 是否存在: True
+2025-04-22 20:35:06,521 - INFO - 目标目录: C:\Users\WJ\Desktop\soft
+2025-04-22 20:35:06,522 - INFO - 监控文件类型: ['.exe', '.whl', '.msi']
+2025-04-22 20:35:06,522 - INFO - 日志级别: INFO
+2025-04-22 20:35:06,522 - INFO - 程序启动成功，开始监控文件...
+2025-04-22 20:35:06,522 - INFO - 开始监控 C:\Users\WJ\AppData\Local\Temp\UniGetUI\ElevatedWinGetTemp\WinGet，目标路径: C:\Users\WJ\Desktop\soft
+2025-04-22 20:35:06,522 - INFO - 扫描间隔: 2秒，重试次数: 5，重试延迟: 2秒
+2025-04-22 20:35:06,530 - INFO - 进入主循环监控模式
