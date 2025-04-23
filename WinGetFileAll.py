@@ -26,9 +26,9 @@ logging.basicConfig(
 
 # 设置控制台输出编码为UTF-8
 if sys.platform == 'win32':
-    import codecs
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
-    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+    import ctypes
+    kernel32 = ctypes.windll.kernel32
+    kernel32.SetConsoleOutputCP(65001)
 
 def handle_exit():
     root = tk.Tk()
@@ -97,36 +97,18 @@ def wait_for_file_completion(file_path: Path, timeout: int = 60) -> bool:
 
 class FileMonitor:
     def __init__(self):
-        self.config = self.load_config()
-        self.temp_dir = self.get_temp_dir()
-        self.target_dir = self.get_target_dir()
-        self.file_extensions = self.config.get('file_extensions', ['.exe', '.whl'])
-        self.scan_interval = self.config.get('scan_interval', 5)
-        self.retry_attempts = self.config.get('retry_attempts', 3)
-        self.retry_delay = self.config.get('retry_delay', 1)
-        self.copied_files: Set[str] = set()
-        self.target_dir.mkdir(parents=True, exist_ok=True)
-        self.known_files: Set[str] = set()  # 记录已知的文件
-        self.file_sizes: dict = {}  # 记录文件大小
-        # 设置日志级别
-        log_level = getattr(logging, self.config.get('log_level', 'INFO').upper())
-        logging.getLogger().setLevel(log_level)
-        
-        logging.info(f"源目录: {self.temp_dir}, 是否存在: {self.temp_dir.exists()}")
-        logging.info(f"目标目录: {self.target_dir}")
-        logging.info(f"监控文件类型: {self.file_extensions}")
-        logging.info(f"日志级别: {logging.getLevelName(log_level)}")
-        
-        if not self.temp_dir.exists():
-            logging.warning(f"源目录不存在: {self.temp_dir}")
-        if not self.target_dir.exists():
-            logging.info(f"目标目录不存在，将创建: {self.target_dir}")
+        # 初始化基本属性，但不加载配置
+        self.config = {}
+        self.copied_files = set()
+        self.known_files = set()
+        self.file_sizes = {}
+        logging.info("FileMonitor初始化完成")
     
     def load_config(self) -> Dict[str, Any]:
         """加载配置文件，如果不存在则创建默认配置"""
         config_path = Path('config.json')
         default_config = {
-            "temp_dir": "%LOCALAPPDATA%/Temp/UniGetUI/ElevatedWinGetTemp/WinGet",
+            "temp_dir": "%LOCALAPPDATA%/Temp",  # 修改这里
             "target_dir": "%USERPROFILE%/Desktop/soft",
             "file_extensions": [".exe", ".whl", ".msi"],
             "scan_interval": 5,
@@ -153,7 +135,7 @@ class FileMonitor:
         except Exception as e:
             logging.error(f"加载配置文件失败: {e}，使用默认配置")
             return default_config
-    
+
     def get_temp_dir(self) -> Path:
         """获取监控目录路径"""
         temp_dir_str = self.config.get('temp_dir', "%LOCALAPPDATA%/Packages")
@@ -161,7 +143,7 @@ class FileMonitor:
         if "%LOCALAPPDATA%" in temp_dir_str:
             temp_dir_str = temp_dir_str.replace("%LOCALAPPDATA%", os.environ['LOCALAPPDATA'])
         return Path(temp_dir_str)
-    
+
     def get_target_dir(self) -> Path:
         """获取目标目录路径"""
         target_dir_str = self.config.get('target_dir', "%USERPROFILE%/Desktop/soft")
@@ -176,58 +158,6 @@ class FileMonitor:
         target_path.mkdir(parents=True, exist_ok=True)
         logging.info(f"目标目录已设置为: {target_path}")
         return target_path
-
-    def remove_empty_dirs(self, path: Path) -> None:
-        """递归删除空文件夹"""
-        try:
-            # 确保使用正确的路径 - 使用temp_dir而不是任意路径
-            target_path = self.temp_dir
-            for dir_path in target_path.rglob('*'):
-                if dir_path.is_dir() and not any(dir_path.iterdir()):
-                    try:
-                        dir_path.rmdir()
-                        logging.info(f"删除空文件夹 {dir_path}")
-                    except PermissionError:
-                        logging.warning(f"权限不足，无法删除文件夹 {dir_path}")
-                    except Exception as e:
-                        logging.error(f"删除文件夹 {dir_path} 时发生错误: {e}")
-        except Exception as e:
-            logging.error(f"删除空文件夹操作失败: {e}", exc_info=True)
-
-    def delete_all_files(self) -> None:
-        """删除 WinGet 下的所有文件和文件夹"""
-        try:
-            deleted_files = 0
-            skipped_files = 0
-            for item in self.temp_dir.iterdir():
-                if item.is_file():
-                    try:
-                        item.unlink()
-                        deleted_files += 1
-                        logging.info(f"删除文件 {item}")
-                    except PermissionError as pe:
-                        if "[WinError 32]" in str(pe):
-                            logging.warning(f"文件被占用，跳过删除: {item}")
-                            skipped_files += 1
-                            continue
-                        logging.error(f"删除文件 {item} 时权限不足: {pe}")
-                        skipped_files += 1
-                    except Exception as e:
-                        logging.error(f"删除文件 {item} 时发生错误: {e}")
-                        skipped_files += 1
-                elif item.is_dir():
-                    try:
-                        shutil.rmtree(item)
-                        logging.info(f"删除文件夹 {item}")
-                        deleted_files += 1
-                    except Exception as e:
-                        logging.error(f"删除文件夹 {item} 时发生错误: {e}")
-                        skipped_files += 1
-            logging.info(f"WinGet 目录清理完成: 成功删除 {deleted_files} 个项目，跳过 {skipped_files} 个项目")
-        except Exception as e:
-            logging.error(f"清理 WinGet 目录时发生错误: {e}", exc_info=True)
-
-    # 已移除prompt_for_deletion方法
 
     def process_files(self) -> bool:
         """递归处理所有子目录中的指定文件类型，返回是否复制了文件"""
@@ -312,6 +242,31 @@ class FileMonitor:
 
     def run(self) -> None:
         """主循环"""
+        # 1. 生成新的config.json
+        self.config = self.load_config()  # 这会生成新的配置文件
+        logging.info("已生成新的config.json文件")
+        
+        # 2. 根据配置初始化其他属性
+        self.temp_dir = self.get_temp_dir()
+        self.target_dir = self.get_target_dir()
+        self.file_extensions = self.config.get('file_extensions', ['.exe', '.whl', '.msi'])
+        self.scan_interval = self.config.get('scan_interval', 5)
+        self.retry_attempts = self.config.get('retry_attempts', 3)
+        self.retry_delay = self.config.get('retry_delay', 1)
+        self.target_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 设置日志级别
+        log_level = getattr(logging, self.config.get('log_level', 'INFO').upper())
+        logging.getLogger().setLevel(log_level)
+        
+        logging.info(f"源目录: {self.temp_dir}, 是否存在: {self.temp_dir.exists()}")
+        logging.info(f"目标目录: {self.target_dir}")
+        logging.info(f"监控文件类型: {self.file_extensions}")
+        logging.info(f"日志级别: {logging.getLevelName(log_level)}")
+        
+        if not self.temp_dir.exists():
+            logging.warning(f"源目录不存在: {self.temp_dir}")
+        
         logging.info(f"开始监控 {self.temp_dir}，目标路径: {self.target_dir}")
         logging.info(f"扫描间隔: {self.scan_interval}秒，重试次数: {self.retry_attempts}，重试延迟: {self.retry_delay}秒")
         
@@ -320,18 +275,12 @@ class FileMonitor:
             if self.process_files():
                 logging.info("初始文件处理完成")
             
-            # 移除提示是否删除的功能
             logging.info("进入主循环监控模式")
             while True:
                 try:
                     # 处理文件
                     if self.process_files():
                         logging.info("发现并处理了新文件")
-                    
-                    # 清理空目录
-                    self.remove_empty_dirs(self.temp_dir)
-                    
-                    # 移除定期提示删除功能
                     
                 except Exception as e:
                     logging.error(f"主循环迭代发生错误: {e}", exc_info=True)
@@ -342,6 +291,15 @@ class FileMonitor:
             raise
 
 if __name__ == "__main__":
+    # 首先删除现有的config.json
+    config_path = Path('config.json')
+    if config_path.exists():
+        try:
+            config_path.unlink()
+            logging.info("已删除现有的config.json文件")
+        except Exception as e:
+            logging.error(f"删除config.json时发生错误: {e}")
+    
     # 设置全局异常处理
     sys.excepthook = handle_exception
     # 注册退出处理
